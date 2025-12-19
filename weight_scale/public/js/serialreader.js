@@ -156,7 +156,7 @@ $(document).ready(function () {
     let weightUpdateTimeout = null;
     let lastStableWeight = null;
     let lastWeightTime = 0;
-    const STABILIZATION_TIME = 3000; // 3 seconds
+    const STABILIZATION_TIME = 3000;
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -192,17 +192,14 @@ $(document).ready(function () {
     function updateQuantityIfStable(currentWeight) {
         const now = Date.now();
         
-        // Clear any existing timeout
         if (weightUpdateTimeout) {
             clearTimeout(weightUpdateTimeout);
         }
 
-        // If weight is different from last stable weight, reset timer
         if (lastStableWeight === null || Math.abs(currentWeight - lastStableWeight) > 0.01) {
             lastStableWeight = currentWeight;
             lastWeightTime = now;
             
-            // Set a new timeout to update after stabilization period
             weightUpdateTimeout = setTimeout(() => {
                 if (active_cdt && active_cdn && !hasSetValue) {
                     frappe.model.set_value(active_cdt, active_cdn, "qty", flt(currentWeight, 2));
@@ -212,7 +209,6 @@ $(document).ready(function () {
             }, STABILIZATION_TIME);
         }
         
-        // Log to console every 3 seconds
         if (now - lastConsoleUpdate >= 3000) {
             console.log("Current scale reading:", currentWeight, "(waiting for stabilization...)");
             lastConsoleUpdate = now;
@@ -236,7 +232,6 @@ $(document).ready(function () {
                     byteBuffer = [];
                 }
 
-                // Prevent buffer overflow
                 if (byteBuffer.length > 100) byteBuffer = [];
 
             } catch (error) {
@@ -246,23 +241,71 @@ $(document).ready(function () {
         }
     }
 
-    frappe.ui.form.on("Delivery Note Item", {
-        qty: function(frm, cdt, cdn) {
-            // Clear any pending weight update when user manually changes qty
-            if (weightUpdateTimeout) {
-                clearTimeout(weightUpdateTimeout);
-                weightUpdateTimeout = null;
-            }
-            
-            active_cdt = cdt;
-            active_cdn = cdn;
-            hasSetValue = false;
-            lastStableWeight = null;
-            byteBuffer = [];
-            lastConsoleUpdate = 0;
-            connectScale();
+    // Initialize when form loads
+    frappe.ui.form.on("Delivery Note", {
+        onload: function(frm) {
+            // Set up click handler for qty fields
+            setupScaleIntegration(frm);
+        },
+        
+        refresh: function(frm) {
+            setupScaleIntegration(frm);
         }
     });
+
+    function setupScaleIntegration(frm) {
+        const grid = frm.fields_dict.items.grid;
+        
+        if (!grid) return;
+        
+        // Remove any existing click handlers
+        grid.wrapper.off('click', '[data-fieldname="qty"] input');
+        
+        // Add click handler to qty field inputs
+        grid.wrapper.on('click', '[data-fieldname="qty"] input', function() {
+            const $row = $(this).closest('.grid-row');
+            const row_name = $row.attr('data-name');
+            
+            if (row_name) {
+                // Clear any pending weight update
+                if (weightUpdateTimeout) {
+                    clearTimeout(weightUpdateTimeout);
+                    weightUpdateTimeout = null;
+                }
+                
+                // Set active row
+                active_cdt = `${frm.doctype} Item`;
+                active_cdn = row_name;
+                hasSetValue = false;
+                lastStableWeight = null;
+                byteBuffer = [];
+                lastConsoleUpdate = 0;
+                
+                console.log("Clicked on qty field for row:", row_name, "Doc:", active_cdt);
+                connectScale();
+                
+                // Also focus the input field
+                $(this).focus();
+            }
+        });
+        
+        // Optional: Add a visual indicator
+        grid.wrapper.on('focus', '[data-fieldname="qty"] input', function() {
+            $(this).closest('.grid-row').addClass('scale-active-row');
+        });
+        
+        grid.wrapper.on('blur', '[data-fieldname="qty"] input', function() {
+            $(this).closest('.grid-row').removeClass('scale-active-row');
+        });
+    }
+
+    // Add some CSS for visual feedback
+    $('<style>').text(`
+        .scale-active-row {
+            background-color: #fff3cd !important;
+            border-left: 3px solid #ffc107 !important;
+        }
+    `).appendTo('head');
 
     window.addEventListener("beforeunload", async () => {
         try {
