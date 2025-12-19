@@ -151,10 +151,9 @@ $(document).ready(function () {
     let active_cdt = null;
     let active_cdn = null;
     let byteBuffer = [];
-    let lastUpdate = 0;
-    const throttleDelay = 3000; // Update only every 3 seconds
+    let lastUpdate = 0;           // Timestamp of last update
+    const throttleDelay = 3000;   // 3 seconds
 
-    // Function to convert incoming bytes to numerical weight
     function parseWeightFromBytes(bytes) {
         try {
             const str = String.fromCharCode(...bytes);
@@ -167,7 +166,6 @@ $(document).ready(function () {
         }
     }
 
-    // Connect to scale
     async function connectScale() {
         try {
             if (!port) {
@@ -187,7 +185,6 @@ $(document).ready(function () {
         }
     }
 
-    // Read data from scale
     async function readScaleStream() {
         while (isReading) {
             try {
@@ -205,16 +202,17 @@ $(document).ready(function () {
 
                 if (weight !== null && active_cdt && active_cdn) {
                     const now = Date.now();
-                    if (now - lastUpdate < throttleDelay) continue; // throttle updates
-                    lastUpdate = now;
 
-                    console.log("Weight from scale:", weight);
+                    // Throttle updates: only allow one update per 3 seconds
+                    if (now - lastUpdate >= throttleDelay) {
+                        lastUpdate = now;
 
-                    // Set value only into clicked child row's qty
-                    frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
+                        console.log("Weight from scale:", weight);
 
-                    // Clear buffer to avoid stale data
-                    byteBuffer = [];
+                        frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
+
+                        byteBuffer = []; // clear buffer after update
+                    }
                 }
 
                 // Prevent buffer overflow
@@ -227,18 +225,18 @@ $(document).ready(function () {
         }
     }
 
-    // Trigger reading **only when qty field is clicked**
+    // Trigger reading only when qty field is clicked
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
-            lastUpdate = 0;   // allow immediate update
-            byteBuffer = [];  // reset buffer for fresh read
+            byteBuffer = [];
+            lastUpdate = 0; // allow immediate update
             connectScale();
         }
     });
 
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
             isReading = false;
