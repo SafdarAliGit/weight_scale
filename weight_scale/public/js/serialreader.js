@@ -9,14 +9,29 @@ $(document).ready(function () {
     let reader = null;
     let isReading = false;
 
+    let lastUpdate = 0;
+    const throttleDelay = 3000;
+
     let active_cdt = null;
     let active_cdn = null;
 
+    // ✅ Function to clean string and get numeric value
+    function cleanNumeric(str) {
+        if (!str) return null;
+
+        // Remove non-numeric characters except dot
+        let cleaned = str.replace(/[^\d.]/g, '');
+
+        // Remove leading zeros before numbers
+        cleaned = cleaned.replace(/^0+(?=\d)/, '');
+
+        if (cleaned === '') return null;
+        return cleaned;
+    }
+
     async function connectScale() {
         try {
-            // Reuse port if already open
             if (port && port.readable) {
-                console.warn("Scale already connected");
                 if (!isReading) {
                     isReading = true;
                     readScaleData();
@@ -28,7 +43,7 @@ $(document).ready(function () {
             port = ports.length ? ports[0] : await navigator.serial.requestPort();
 
             await port.open({
-                baudRate: 9600,  // adjust according to your scale
+                baudRate: 9600,   // adjust based on your scale
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none"
@@ -50,20 +65,35 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                // Log raw bytes
-                const rawArray = Array.from(value);
-                console.log("RAW SCALE BYTES:", rawArray);
-
-                // Try converting to string safely (for ASCII scales)
+                // Convert Uint8Array to string safely
+                let str = '';
                 try {
-                    const str = String.fromCharCode(...value);
-                    console.log("Scale string:", str);
+                    str = new TextDecoder().decode(value);
                 } catch (e) {
                     console.warn("Cannot decode bytes as string:", value);
+                    continue;
                 }
 
-                // Optional: set into qty field if numeric detected
-                // Here we can add parsing later once we know exact protocol
+                // Clean string to get only numeric value
+                const numericValue = cleanNumeric(str);
+                if (!numericValue) return;
+
+                // Throttle updates
+                const now = Date.now();
+                if (now - lastUpdate < throttleDelay) continue;
+                lastUpdate = now;
+
+                console.log("Scale value (cleaned):", numericValue);
+
+                // ✅ Set value into clicked child row qty
+                if (active_cdt && active_cdn) {
+                    frappe.model.set_value(
+                        active_cdt,
+                        active_cdn,
+                        "qty",
+                        flt(numericValue, 2)
+                    );
+                }
 
             } catch (error) {
                 console.error("Error reading from scale:", error);
@@ -72,7 +102,7 @@ $(document).ready(function () {
         }
     }
 
-    // Trigger scale reading when qty field is clicked in child table
+    // ✅ Trigger on qty click in Delivery Note Item
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
