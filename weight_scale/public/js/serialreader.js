@@ -24,6 +24,7 @@ $(document).ready(function () {
             const str = String.fromCharCode(...bytes);
             // Keep only numbers and dot
             const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
+            console.log("Weight from scale:", cleaned);
             if (!cleaned) return null;
             return parseFloat(cleaned);
         } catch (e) {
