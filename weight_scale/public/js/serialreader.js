@@ -151,8 +151,10 @@ $(document).ready(function () {
     let active_cdt = null;
     let active_cdn = null;
     let byteBuffer = [];
-    let hasSetValue = false;
+    let lastUpdate = 0;
+    const throttleDelay = 3000; // Update only every 3 seconds
 
+    // Function to convert incoming bytes to numerical weight
     function parseWeightFromBytes(bytes) {
         try {
             const str = String.fromCharCode(...bytes);
@@ -165,6 +167,7 @@ $(document).ready(function () {
         }
     }
 
+    // Connect to scale
     async function connectScale() {
         try {
             if (!port) {
@@ -184,6 +187,7 @@ $(document).ready(function () {
         }
     }
 
+    // Read data from scale
     async function readScaleStream() {
         while (isReading) {
             try {
@@ -199,12 +203,17 @@ $(document).ready(function () {
 
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null && active_cdt && active_cdn && !hasSetValue) {
+                if (weight !== null && active_cdt && active_cdn) {
+                    const now = Date.now();
+                    if (now - lastUpdate < throttleDelay) continue; // throttle updates
+                    lastUpdate = now;
+
                     console.log("Weight from scale:", weight);
 
+                    // Set value only into clicked child row's qty
                     frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
 
-                    hasSetValue = true;
+                    // Clear buffer to avoid stale data
                     byteBuffer = [];
                 }
 
@@ -218,17 +227,18 @@ $(document).ready(function () {
         }
     }
 
-    // Trigger reading per click
+    // Trigger reading **only when qty field is clicked**
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
-            hasSetValue = false;
+            lastUpdate = 0;   // allow immediate update
+            byteBuffer = [];  // reset buffer for fresh read
             connectScale();
         }
     });
 
-    // Cleanup
+    // Cleanup on page unload
     window.addEventListener("beforeunload", async () => {
         try {
             isReading = false;
