@@ -7,50 +7,34 @@ $(document).ready(function () {
 
     let port = null;
     let reader = null;
-    let decoder = null;
     let isReading = false;
-
-    let lastUpdate = 0;
-    const throttleDelay = 3000;
-
-    let active_cdt = null;
-    let active_cdn = null;
-
-    function parseWeight(str) {
-        const match = str.match(/(\d+\.\d+)/);
-        if (!match) return null;
-        return parseFloat(match[0]) * 1000; // scale factor if needed
-    }
 
     async function connectScale() {
         try {
-            // ✅ Reuse existing port if already open
+            // Reuse port if already open
             if (port && port.readable) {
                 console.warn("Scale already connected");
+                if (!isReading) {
+                    isReading = true;
+                    readScaleData();
+                }
                 return;
             }
 
-            // Use previously approved port if exists
             const ports = await navigator.serial.getPorts();
             port = ports.length ? ports[0] : await navigator.serial.requestPort();
 
             await port.open({
-                baudRate: 9600,     // adjust to your scale
+                baudRate: 9600, // adjust according to your scale
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none"
             });
 
-            decoder = new TextDecoderStream();
-            port.readable.pipeTo(decoder.writable);
-            reader = decoder.readable.getReader();
-
-            if (!isReading) {
-                isReading = true;
-                readScaleData();
-            }
-
+            reader = port.readable.getReader();
             console.log("Scale connected successfully!");
+            isReading = true;
+            readScaleData();
 
         } catch (error) {
             console.error("Error connecting to weight scale:", error);
@@ -63,21 +47,15 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                const weight = parseWeight(value);
-                if (weight === null || isNaN(weight)) continue;
+                // Log raw data to console
+                console.log("RAW SCALE DATA:", value);
 
-                const now = Date.now();
-                if (now - lastUpdate < throttleDelay) continue;
-                lastUpdate = now;
-
-                // ✅ Set value into clicked child table row
-                if (active_cdt && active_cdn) {
-                    frappe.model.set_value(
-                        active_cdt,
-                        active_cdn,
-                        "qty",
-                        flt(weight, 2)
-                    );
+                // Try decoding safely
+                try {
+                    const str = new TextDecoder().decode(value);
+                    console.log("Scale string:", str);
+                } catch (e) {
+                    console.warn("Cannot decode value as string:", value);
                 }
 
             } catch (error) {
@@ -87,16 +65,14 @@ $(document).ready(function () {
         }
     }
 
-    // ✅ Trigger scale reading when qty is clicked in Delivery Note Item
+    // Trigger scale reading when qty field is clicked in child table
     frappe.ui.form.on("Delivery Note Item", {
-        qty: function(frm, cdt, cdn) {
-            active_cdt = cdt;
-            active_cdn = cdn;
+        qty: function (frm, cdt, cdn) {
             connectScale();
         }
     });
 
-    // ✅ Cleanup on page unload
+    // Cleanup on page unload
     window.addEventListener("beforeunload", async () => {
         try {
             if (reader) await reader.cancel();
