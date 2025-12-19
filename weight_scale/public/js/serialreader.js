@@ -13,13 +13,12 @@ $(document).ready(function () {
     let active_cdn = null;
 
     let byteBuffer = [];
-    let hasSetValue = false;
+    let hasSetValue = false; // ✅ flag to ensure value is set once
 
-    // ✅ Use your working parseWeightFromBytes function
     function parseWeightFromBytes(bytes) {
         try {
             const str = String.fromCharCode(...bytes);
-            // Remove everything except digits and dot, remove leading zeros
+            // Keep only digits and dot, remove leading zeros
             const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
             if (!cleaned) return null;
             return parseFloat(cleaned);
@@ -66,6 +65,10 @@ $(document).ready(function () {
                 if (done) break;
 
                 const bytes = Array.from(value);
+
+                // Ignore single control bytes (like 0x12 etc)
+                if (bytes.every(b => b < 32)) continue;
+
                 byteBuffer.push(...bytes);
 
                 const weight = parseWeightFromBytes(byteBuffer);
@@ -82,13 +85,15 @@ $(document).ready(function () {
                         );
                     }
 
-                    // ✅ mark value as set and stop further updates
-                    hasSetValue = true;
-                    byteBuffer = [];
+                    hasSetValue = true; // ✅ prevent further overwriting
+                    byteBuffer = [];    // clear buffer
 
-                    // stop reading until next click
+                    // Stop reading until next click
                     break;
                 }
+
+                // Prevent buffer from growing indefinitely
+                if (byteBuffer.length > 50) byteBuffer = [];
 
             } catch (error) {
                 console.error("Error reading from scale:", error);
@@ -96,6 +101,7 @@ $(document).ready(function () {
             }
         }
 
+        // Release reader after first valid value
         if (hasSetValue && reader) {
             try {
                 await reader.cancel();
@@ -104,17 +110,17 @@ $(document).ready(function () {
         }
     }
 
-    // ✅ Trigger on qty click
+    // Trigger reading on qty click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
-            hasSetValue = false; // reset flag for new click
+            hasSetValue = false; // reset for new click
             connectScale();
         }
     });
 
-    // Cleanup
+    // Cleanup on page unload
     window.addEventListener("beforeunload", async () => {
         try {
             if (reader) await reader.cancel();
