@@ -138,7 +138,6 @@
 
 
 $(document).ready(function () {
-
     if (!('serial' in navigator)) {
         console.error('Web Serial API not supported in this browser.');
         return;
@@ -153,7 +152,11 @@ $(document).ready(function () {
     let byteBuffer = [];
     let hasSetValue = false;
 
-    let lastConsoleUpdate = 0; // timestamp for slowing console/log
+    let lastConsoleUpdate = 0;
+    let weightUpdateTimeout = null;
+    let lastStableWeight = null;
+    let lastWeightTime = 0;
+    const STABILIZATION_TIME = 3000; // 3 seconds
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -186,6 +189,36 @@ $(document).ready(function () {
         }
     }
 
+    function updateQuantityIfStable(currentWeight) {
+        const now = Date.now();
+        
+        // Clear any existing timeout
+        if (weightUpdateTimeout) {
+            clearTimeout(weightUpdateTimeout);
+        }
+
+        // If weight is different from last stable weight, reset timer
+        if (lastStableWeight === null || Math.abs(currentWeight - lastStableWeight) > 0.01) {
+            lastStableWeight = currentWeight;
+            lastWeightTime = now;
+            
+            // Set a new timeout to update after stabilization period
+            weightUpdateTimeout = setTimeout(() => {
+                if (active_cdt && active_cdn && !hasSetValue) {
+                    frappe.model.set_value(active_cdt, active_cdn, "qty", flt(currentWeight, 2));
+                    hasSetValue = true;
+                    console.log("Weight stabilized, updating quantity to:", currentWeight);
+                }
+            }, STABILIZATION_TIME);
+        }
+        
+        // Log to console every 3 seconds
+        if (now - lastConsoleUpdate >= 3000) {
+            console.log("Current scale reading:", currentWeight, "(waiting for stabilization...)");
+            lastConsoleUpdate = now;
+        }
+    }
+
     async function readScaleStream() {
         while (isReading) {
             try {
@@ -193,29 +226,14 @@ $(document).ready(function () {
                 if (done) break;
 
                 const bytes = Array.from(value);
-
-                // Ignore control bytes
                 if (bytes.every(b => b < 32)) continue;
 
                 byteBuffer.push(...bytes);
-
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null) {
-
-                    // ✅ Only set qty once per click
-                    if (active_cdt && active_cdn && !hasSetValue) {
-                        frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
-                        hasSetValue = true;
-                        byteBuffer = [];
-                    }
-
-                    // ✅ Slow down stream in console/log every 3 seconds
-                    const now = Date.now();
-                    if (now - lastConsoleUpdate >= 3000) {
-                        console.log("Scale stream value:", weight);
-                        lastConsoleUpdate = now;
-                    }
+                if (weight !== null && active_cdt && active_cdn && !hasSetValue) {
+                    updateQuantityIfStable(weight);
+                    byteBuffer = [];
                 }
 
                 // Prevent buffer overflow
@@ -228,25 +246,30 @@ $(document).ready(function () {
         }
     }
 
-    // Trigger reading per click on qty
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
+            // Clear any pending weight update when user manually changes qty
+            if (weightUpdateTimeout) {
+                clearTimeout(weightUpdateTimeout);
+                weightUpdateTimeout = null;
+            }
+            
             active_cdt = cdt;
             active_cdn = cdn;
             hasSetValue = false;
-            byteBuffer = []; // fresh read
+            lastStableWeight = null;
+            byteBuffer = [];
             lastConsoleUpdate = 0;
             connectScale();
         }
     });
 
-    // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
             isReading = false;
+            if (weightUpdateTimeout) clearTimeout(weightUpdateTimeout);
             if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
     });
-
 });
