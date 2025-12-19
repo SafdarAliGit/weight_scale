@@ -137,6 +137,7 @@
 // });
 
 
+
 $(document).ready(function () {
 
     if (!('serial' in navigator)) {
@@ -145,18 +146,14 @@ $(document).ready(function () {
     }
 
     let port = null;
-    let reader = null;
     let isReading = false;
     let lastUpdate = 0;
     const throttleDelay = 3000;
 
     let active_cdt = null;
     let active_cdn = null;
-
     let byteBuffer = [];
-    let hasSetValue = false;
 
-    // Use your working function to parse bytes from scale
     function parseWeightFromBytes(bytes) {
         try {
             const str = String.fromCharCode(...bytes);
@@ -171,28 +168,20 @@ $(document).ready(function () {
 
     async function connectScale() {
         try {
-            if (port && port.readable) {
-                if (!isReading) {
-                    isReading = true;
-                    readScaleData();
-                }
-                return;
+            if (!port) {
+                const ports = await navigator.serial.getPorts();
+                port = ports.length ? ports[0] : await navigator.serial.requestPort();
+                await port.open({
+                    baudRate: 9600,
+                    dataBits: 8,
+                    stopBits: 1,
+                    parity: "none"
+                });
+                console.log("Scale connected successfully!");
             }
 
-            const ports = await navigator.serial.getPorts();
-            port = ports.length ? ports[0] : await navigator.serial.requestPort();
-
-            await port.open({
-                baudRate: 9600,
-                dataBits: 8,
-                stopBits: 1,
-                parity: "none"
-            });
-
-            reader = port.readable.getReader();
-            console.log("Scale connected successfully!");
-            isReading = true;
-            readScaleData();
+            // Each click gets a fresh reader
+            await readScaleData();
 
         } catch (error) {
             console.error("Error connecting to weight scale:", error);
@@ -200,8 +189,14 @@ $(document).ready(function () {
     }
 
     async function readScaleData() {
-        while (true) {
-            try {
+        if (!port || !port.readable) return;
+
+        let reader = port.readable.getReader();
+        byteBuffer = [];
+        let hasSetValue = false;
+
+        try {
+            while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
 
@@ -230,48 +225,37 @@ $(document).ready(function () {
                         );
                     }
 
-                    hasSetValue = true; // ✅ Prevent further updates
-                    byteBuffer = []; // clear buffer
+                    hasSetValue = true;
+                    byteBuffer = [];
 
-                    // Stop reading until next click
+                    // Stop reading after first valid weight
                     break;
                 }
 
-                // Prevent buffer from growing indefinitely
                 if (byteBuffer.length > 50) byteBuffer = [];
-
-            } catch (error) {
-                console.error("Error reading from scale:", error);
-                // Don't break - just retry reading
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-                continue; // Continue trying to read
             }
-        }
-
-        // Release reader after first valid value
-        if (hasSetValue && reader) {
+        } catch (error) {
+            console.error("Error reading from scale:", error);
+        } finally {
+            // Release reader so next click works
             try {
                 await reader.cancel();
             } catch (e) {}
-            isReading = false;
         }
     }
 
-    // Trigger reading on child table qty click
+    // Trigger reading per child row qty click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
-            hasSetValue = false; // reset flag for new click
             connectScale();
         }
     });
 
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
-            isReading = false;
-            if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
     });
