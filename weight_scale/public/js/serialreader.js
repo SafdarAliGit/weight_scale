@@ -9,22 +9,18 @@ $(document).ready(function () {
     let reader = null;
     let isReading = false;
 
-    let lastUpdate = 0;
-    const throttleDelay = 3000;
-
     let active_cdt = null;
     let active_cdn = null;
 
-    // Array to accumulate bytes from scale
     let byteBuffer = [];
+    let hasSetValue = false;
 
+    // ✅ Use your working parseWeightFromBytes function
     function parseWeightFromBytes(bytes) {
-        // Convert byte array to string safely
         try {
             const str = String.fromCharCode(...bytes);
-            // Keep only numbers and dot
+            // Remove everything except digits and dot, remove leading zeros
             const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
-            console.log("Weight from scale:", cleaned);
             if (!cleaned) return null;
             return parseFloat(cleaned);
         } catch (e) {
@@ -47,7 +43,7 @@ $(document).ready(function () {
             port = ports.length ? ports[0] : await navigator.serial.requestPort();
 
             await port.open({
-                baudRate: 9600,   // adjust according to your scale
+                baudRate: 9600,
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none"
@@ -69,21 +65,14 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                // Convert Uint8Array to array of numbers
                 const bytes = Array.from(value);
                 byteBuffer.push(...bytes);
 
-                // Try to parse weight from accumulated bytes
                 const weight = parseWeightFromBytes(byteBuffer);
-                if (weight !== null) {
 
-                    const now = Date.now();
-                    if (now - lastUpdate < throttleDelay) continue;
-                    lastUpdate = now;
-
+                if (weight !== null && !hasSetValue) {
                     console.log("Weight from scale:", weight);
 
-                    // Set value into clicked child row
                     if (active_cdt && active_cdn) {
                         frappe.model.set_value(
                             active_cdt,
@@ -93,8 +82,12 @@ $(document).ready(function () {
                         );
                     }
 
-                    // Clear buffer after successful parse
+                    // ✅ mark value as set and stop further updates
+                    hasSetValue = true;
                     byteBuffer = [];
+
+                    // stop reading until next click
+                    break;
                 }
 
             } catch (error) {
@@ -102,18 +95,26 @@ $(document).ready(function () {
                 break;
             }
         }
+
+        if (hasSetValue && reader) {
+            try {
+                await reader.cancel();
+            } catch (e) {}
+            isReading = false;
+        }
     }
 
-    // Trigger scale reading when qty field is clicked in child table
+    // ✅ Trigger on qty click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
+            hasSetValue = false; // reset flag for new click
             connectScale();
         }
     });
 
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
             if (reader) await reader.cancel();
