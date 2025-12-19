@@ -10,7 +10,7 @@ $(document).ready(function () {
     let isReading = false;
 
     let lastUpdate = 0;
-    const throttleDelay = 10000;
+    const throttleDelay = 3000;
 
     let active_cdt = null;
     let active_cdn = null;
@@ -24,6 +24,8 @@ $(document).ready(function () {
             const str = String.fromCharCode(...bytes);
             // Keep only numbers and dot
             const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
+            console.log("Cleaned string:", cleaned);
+            
             if (!cleaned) return null;
             return parseFloat(cleaned);
         } catch (e) {
