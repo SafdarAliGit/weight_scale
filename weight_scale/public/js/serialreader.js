@@ -1,13 +1,15 @@
 $(document).ready(function () {
 
     if (!('serial' in navigator)) {
-        console.error('Web Serial API is not supported in this browser.');
+        console.error('Web Serial API not supported');
         return;
     }
 
     let port = null;
     let reader = null;
-    let textDecoder = null;
+    let decoder = null;
+    let isReading = false;
+
     let lastUpdate = 0;
     const throttleDelay = 3000;
 
@@ -15,20 +17,23 @@ $(document).ready(function () {
     let active_cdn = null;
 
     function reverseString(str) {
-        const numericData = str.match(/(\d+\.\d+)/);
-        if (!numericData) return null;
-        return parseFloat(numericData[0]) * 1000;
+        const match = str.match(/(\d+\.\d+)/);
+        if (!match) return null;
+        return parseFloat(match[0]) * 1000;
     }
 
     async function connectSerial() {
         try {
-            // 🔒 Prevent reopening same port
+            // ✅ If already open, do nothing
             if (port && port.readable) {
                 console.warn("Weight scale already connected");
                 return;
             }
 
-            port = await navigator.serial.requestPort();
+            // ✅ Reuse previously approved port if available
+            const ports = await navigator.serial.getPorts();
+            port = ports.length ? ports[0] : await navigator.serial.requestPort();
+
             await port.open({
                 baudRate: 9600,
                 dataBits: 8,
@@ -36,11 +41,14 @@ $(document).ready(function () {
                 parity: "none"
             });
 
-            textDecoder = new TextDecoderStream();
-            port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
+            decoder = new TextDecoderStream();
+            port.readable.pipeTo(decoder.writable);
+            reader = decoder.readable.getReader();
 
-            readSerialData();
+            if (!isReading) {
+                isReading = true;
+                readSerialData();
+            }
 
         } catch (error) {
             console.error('Error connecting to weight scale:', error);
@@ -53,21 +61,21 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                let floatValue = reverseString(value);
-                console.log("Weight Scale:", floatValue);
-                if (isNaN(floatValue)) continue;
+                const weight = reverseString(value);
+                if (isNaN(weight)) continue;
 
-                const currentTime = Date.now();
-                if (currentTime - lastUpdate < throttleDelay) continue;
+                const now = Date.now();
+                if (now - lastUpdate < throttleDelay) continue;
 
-                lastUpdate = currentTime;
+                lastUpdate = now;
+                console.log("Weight Scale:", weight);
 
                 if (active_cdt && active_cdn) {
                     frappe.model.set_value(
                         active_cdt,
                         active_cdn,
                         "qty",
-                        flt(floatValue, 2)
+                        flt(weight, 2)
                     );
                 }
 
@@ -78,6 +86,7 @@ $(document).ready(function () {
         }
     }
 
+    // ✅ DELIVERY NOTE ITEM → QTY CLICK
     frappe.ui.form.on("Delivery Note Item", {
         qty: function (frm, cdt, cdn) {
             active_cdt = cdt;
@@ -86,7 +95,7 @@ $(document).ready(function () {
         }
     });
 
-    // 🧹 Cleanup on page refresh
+    // ✅ Clean shutdown (VERY IMPORTANT)
     window.addEventListener("beforeunload", async () => {
         try {
             if (reader) await reader.cancel();
