@@ -153,8 +153,7 @@ $(document).ready(function () {
     let hasSetValue = false;
 
     let lastConsoleUpdate = 0; // timestamp for slowing console/log
-    let weightUpdateTimeout = null; // timeout for delayed update
-    let lastWeightValue = null; // store last weight value
+    let weightUpdateTimeout = null; // Added for 3-second delay
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -187,26 +186,6 @@ $(document).ready(function () {
         }
     }
 
-    function updateQtyWithDelay(weight) {
-        // Clear any existing timeout
-        if (weightUpdateTimeout) {
-            clearTimeout(weightUpdateTimeout);
-        }
-        
-        // Store the latest weight value
-        lastWeightValue = weight;
-        
-        // Set a new timeout for 3 seconds
-        weightUpdateTimeout = setTimeout(() => {
-            if (active_cdt && active_cdn && !hasSetValue) {
-                frappe.model.set_value(active_cdt, active_cdn, "qty", flt(lastWeightValue, 2));
-                hasSetValue = true;
-                console.log("Setting qty after 3 seconds:", lastWeightValue);
-                byteBuffer = [];
-            }
-        }, 3000); // 3 seconds delay
-    }
-
     async function readScaleStream() {
         while (isReading) {
             try {
@@ -223,9 +202,20 @@ $(document).ready(function () {
                 const weight = parseWeightFromBytes(byteBuffer);
 
                 if (weight !== null) {
-                    // Update with 3 seconds delay
+                    // ✅ Add 3-second delay before setting value
                     if (active_cdt && active_cdn && !hasSetValue) {
-                        updateQtyWithDelay(weight);
+                        // Clear any existing timeout
+                        if (weightUpdateTimeout) {
+                            clearTimeout(weightUpdateTimeout);
+                        }
+                        
+                        // Set new timeout for 3 seconds
+                        weightUpdateTimeout = setTimeout(() => {
+                            frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
+                            hasSetValue = true;
+                            byteBuffer = [];
+                            console.log("Set qty after 3-second delay:", weight);
+                        }, 3000); // 3 seconds delay
                     }
 
                     // ✅ Slow down stream in console/log every 3 seconds
@@ -249,7 +239,7 @@ $(document).ready(function () {
     // Trigger reading per click on qty
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
-            // Clear any pending timeout when user clicks a new field
+            // Clear any pending timeout when clicking new field
             if (weightUpdateTimeout) {
                 clearTimeout(weightUpdateTimeout);
                 weightUpdateTimeout = null;
@@ -258,7 +248,6 @@ $(document).ready(function () {
             active_cdt = cdt;
             active_cdn = cdn;
             hasSetValue = false;
-            lastWeightValue = null;
             byteBuffer = []; // fresh read
             lastConsoleUpdate = 0;
             connectScale();
@@ -269,7 +258,7 @@ $(document).ready(function () {
     window.addEventListener("beforeunload", async () => {
         try {
             isReading = false;
-            if (weightUpdateTimeout) clearTimeout(weightUpdateTimeout);
+            if (weightUpdateTimeout) clearTimeout(weightUpdateTimeout); // Added
             if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
