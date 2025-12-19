@@ -138,6 +138,7 @@
 
 
 $(document).ready(function () {
+
     if (!('serial' in navigator)) {
         console.error('Web Serial API not supported in this browser.');
         return;
@@ -154,9 +155,6 @@ $(document).ready(function () {
 
     let byteBuffer = [];
     let hasSetValue = false;
-
-    // Store state for each row
-    let rowStates = new Map(); // key: row_name, value: {hasSetValue: false, lastUpdate: 0}
 
     // Use your working function to parse bytes from scale
     function parseWeightFromBytes(bytes) {
@@ -216,41 +214,27 @@ $(document).ready(function () {
 
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null && active_cdt && active_cdn) {
-                    // Get row name for state tracking
-                    const rowName = active_cdn;
-                    
-                    // Get or create state for this row
-                    if (!rowStates.has(rowName)) {
-                        rowStates.set(rowName, {hasSetValue: false, lastUpdate: 0});
-                    }
-                    
-                    const rowState = rowStates.get(rowName);
-                    
-                    // Check if this row already got its value
-                    if (rowState.hasSetValue) continue;
-                    
-                    // Check throttle delay for this specific row
+                if (weight !== null && !hasSetValue) {
                     const now = Date.now();
-                    if (now - rowState.lastUpdate < throttleDelay) continue;
-                    
-                    rowState.lastUpdate = now;
+                    if (now - lastUpdate < throttleDelay) continue;
+                    lastUpdate = now;
 
-                    console.log(`Weight from scale for row ${rowName}:`, weight);
+                    console.log("Weight from scale:", weight);
 
-                    // Update the specific row
-                    frappe.model.set_value(
-                        active_cdt,
-                        active_cdn,
-                        "qty",
-                        flt(weight, 2)
-                    );
+                    if (active_cdt && active_cdn) {
+                        frappe.model.set_value(
+                            active_cdt,
+                            active_cdn,
+                            "qty",
+                            flt(weight, 2)
+                        );
+                    }
 
-                    rowState.hasSetValue = true; // Mark this row as done
+                    hasSetValue = true; // ✅ Prevent further updates
                     byteBuffer = []; // clear buffer
 
-                    // Don't break - keep reading for other rows
-                    continue;
+                    // Stop reading until next click
+                    break;
                 }
 
                 // Prevent buffer from growing indefinitely
@@ -258,57 +242,28 @@ $(document).ready(function () {
 
             } catch (error) {
                 console.error("Error reading from scale:", error);
-                break;
+                // Don't break - just retry reading
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                continue; // Continue trying to read
             }
         }
-        
-        isReading = false;
+
+        // Release reader after first valid value
+        if (hasSetValue && reader) {
+            try {
+                await reader.cancel();
+            } catch (e) {}
+            isReading = false;
+        }
     }
 
     // Trigger reading on child table qty click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
-            // Get row name from cdn
-            const rowName = cdn;
-            
-            // Reset state for this specific row
-            if (rowStates.has(rowName)) {
-                rowStates.get(rowName).hasSetValue = false;
-            } else {
-                rowStates.set(rowName, {hasSetValue: false, lastUpdate: 0});
-            }
-            
-            // Set active row
             active_cdt = cdt;
             active_cdn = cdn;
-            
-            // Connect and start reading
+            hasSetValue = false; // reset flag for new click
             connectScale();
-        }
-    });
-
-    // Also listen for new rows being added
-    frappe.ui.form.on("Delivery Note", {
-        items_add: function(frm, cdt, cdn) {
-            // Initialize state for new row
-            const rowName = cdn;
-            rowStates.set(rowName, {hasSetValue: false, lastUpdate: 0});
-        },
-        
-        // Clean up when form is closed
-        before_save: function(frm) {
-            // Keep row states for current rows
-            const currentRows = frm.doc.items || [];
-            const newRowStates = new Map();
-            
-            currentRows.forEach(item => {
-                const rowName = item.name;
-                if (rowStates.has(rowName)) {
-                    newRowStates.set(rowName, rowStates.get(rowName));
-                }
-            });
-            
-            rowStates = newRowStates;
         }
     });
 
