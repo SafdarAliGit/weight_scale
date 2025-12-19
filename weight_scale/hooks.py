@@ -5,6 +5,10 @@ app_description = "for weight scale"
 app_email = "safdar211@gmail.com"
 app_license = "mit"
 
+
+doctype_js = {"Delivery Note": "public/js/serialreader.js"}
+required_apps = ["erpnext"]
+
 # Includes in <head>
 # ------------------
 
