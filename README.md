@@ -4,4 +4,4 @@ for weight scale
 
 #### License
 
-mit
+mit# weight_scale
