@@ -43,6 +43,7 @@ $(document).ready(function () {
                     if (done) break;
 
                     let floatValue = reverseString(value);
+                    console.log("Weight Scale" + floatValue);
                     if (isNaN(floatValue)) continue;
 
                     const currentTime = Date.now();
