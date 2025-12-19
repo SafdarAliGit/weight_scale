@@ -151,8 +151,9 @@ $(document).ready(function () {
     let active_cdt = null;
     let active_cdn = null;
     let byteBuffer = [];
-    let lastUpdate = 0;           // Timestamp of last update
-    const throttleDelay = 3000;   // 3 seconds
+    let hasSetValue = false;
+
+    let lastConsoleUpdate = 0; // timestamp for slowing console/log
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -200,18 +201,20 @@ $(document).ready(function () {
 
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null && active_cdt && active_cdn) {
-                    const now = Date.now();
+                if (weight !== null) {
 
-                    // Throttle updates: only allow one update per 3 seconds
-                    if (now - lastUpdate >= throttleDelay) {
-                        lastUpdate = now;
-
-                        console.log("Weight from scale:", weight);
-
+                    // ✅ Only set qty once per click
+                    if (active_cdt && active_cdn && !hasSetValue) {
                         frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
+                        hasSetValue = true;
+                        byteBuffer = [];
+                    }
 
-                        byteBuffer = []; // clear buffer after update
+                    // ✅ Slow down stream in console/log every 3 seconds
+                    const now = Date.now();
+                    if (now - lastConsoleUpdate >= 3000) {
+                        console.log("Scale stream value:", weight);
+                        lastConsoleUpdate = now;
                     }
                 }
 
@@ -225,13 +228,14 @@ $(document).ready(function () {
         }
     }
 
-    // Trigger reading only when qty field is clicked
+    // Trigger reading per click on qty
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
-            byteBuffer = [];
-            lastUpdate = 0; // allow immediate update
+            hasSetValue = false;
+            byteBuffer = []; // fresh read
+            lastConsoleUpdate = 0;
             connectScale();
         }
     });
