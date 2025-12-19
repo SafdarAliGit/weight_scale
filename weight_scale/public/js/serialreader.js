@@ -15,18 +15,21 @@ $(document).ready(function () {
     let active_cdt = null;
     let active_cdn = null;
 
-    // ✅ Function to clean string and get numeric value
-    function cleanNumeric(str) {
-        if (!str) return null;
+    // Array to accumulate bytes from scale
+    let byteBuffer = [];
 
-        // Remove non-numeric characters except dot
-        let cleaned = str.replace(/[^\d.]/g, '');
-
-        // Remove leading zeros before numbers
-        cleaned = cleaned.replace(/^0+(?=\d)/, '');
-
-        if (cleaned === '') return null;
-        return cleaned;
+    function parseWeightFromBytes(bytes) {
+        // Convert byte array to string safely
+        try {
+            const str = String.fromCharCode(...bytes);
+            // Keep only numbers and dot
+            const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
+            if (!cleaned) return null;
+            return parseFloat(cleaned);
+        } catch (e) {
+            console.warn("Cannot parse bytes:", bytes);
+            return null;
+        }
     }
 
     async function connectScale() {
@@ -43,7 +46,7 @@ $(document).ready(function () {
             port = ports.length ? ports[0] : await navigator.serial.requestPort();
 
             await port.open({
-                baudRate: 9600,   // adjust based on your scale
+                baudRate: 9600,   // adjust according to your scale
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none"
@@ -65,34 +68,32 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                // Convert Uint8Array to string safely
-                let str = '';
-                try {
-                    str = new TextDecoder().decode(value);
-                } catch (e) {
-                    console.warn("Cannot decode bytes as string:", value);
-                    continue;
-                }
+                // Convert Uint8Array to array of numbers
+                const bytes = Array.from(value);
+                byteBuffer.push(...bytes);
 
-                // Clean string to get only numeric value
-                const numericValue = cleanNumeric(str);
-                if (!numericValue) return;
+                // Try to parse weight from accumulated bytes
+                const weight = parseWeightFromBytes(byteBuffer);
+                if (weight !== null) {
 
-                // Throttle updates
-                const now = Date.now();
-                if (now - lastUpdate < throttleDelay) continue;
-                lastUpdate = now;
+                    const now = Date.now();
+                    if (now - lastUpdate < throttleDelay) continue;
+                    lastUpdate = now;
 
-                console.log("Scale value (cleaned):", numericValue);
+                    console.log("Weight from scale:", weight);
 
-                // ✅ Set value into clicked child row qty
-                if (active_cdt && active_cdn) {
-                    frappe.model.set_value(
-                        active_cdt,
-                        active_cdn,
-                        "qty",
-                        flt(numericValue, 2)
-                    );
+                    // Set value into clicked child row
+                    if (active_cdt && active_cdn) {
+                        frappe.model.set_value(
+                            active_cdt,
+                            active_cdn,
+                            "qty",
+                            flt(weight, 2)
+                        );
+                    }
+
+                    // Clear buffer after successful parse
+                    byteBuffer = [];
                 }
 
             } catch (error) {
@@ -102,7 +103,7 @@ $(document).ready(function () {
         }
     }
 
-    // ✅ Trigger on qty click in Delivery Note Item
+    // Trigger scale reading when qty field is clicked in child table
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
