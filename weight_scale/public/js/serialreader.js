@@ -145,8 +145,14 @@ $(document).ready(function () {
     }
 
     let port = null;
+    let reader = null;
+    let isReading = false;
 
-    // Use your working function to parse bytes from scale
+    let active_cdt = null;
+    let active_cdn = null;
+    let byteBuffer = [];
+    let hasSetValue = false;
+
     function parseWeightFromBytes(bytes) {
         try {
             const str = String.fromCharCode(...bytes);
@@ -159,13 +165,8 @@ $(document).ready(function () {
         }
     }
 
-    async function connectAndReadScale(cdt, cdn) {
-        let reader = null;
-        let byteBuffer = [];
-        let hasSetValue = false;
-
+    async function connectScale() {
         try {
-            // Request port if not already connected
             if (!port) {
                 const ports = await navigator.serial.getPorts();
                 port = ports.length ? ports[0] : await navigator.serial.requestPort();
@@ -173,13 +174,24 @@ $(document).ready(function () {
                 console.log("Scale connected successfully!");
             }
 
-            reader = port.readable.getReader();
+            if (!reader) {
+                reader = port.readable.getReader();
+                isReading = true;
+                readScaleStream();
+            }
+        } catch (error) {
+            console.error("Error connecting to weight scale:", error);
+        }
+    }
 
-            while (true) {
+    async function readScaleStream() {
+        while (isReading) {
+            try {
                 const { value, done } = await reader.read();
                 if (done) break;
 
                 const bytes = Array.from(value);
+
                 // Ignore control bytes
                 if (bytes.every(b => b < 32)) continue;
 
@@ -187,43 +199,40 @@ $(document).ready(function () {
 
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null && !hasSetValue) {
+                if (weight !== null && active_cdt && active_cdn && !hasSetValue) {
                     console.log("Weight from scale:", weight);
 
-                    // Set value into the clicked child row
-                    frappe.model.set_value(cdt, cdn, "qty", flt(weight, 2));
+                    frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
 
                     hasSetValue = true;
                     byteBuffer = [];
-
-                    break; // Stop reading for this click
                 }
 
                 // Prevent buffer overflow
-                if (byteBuffer.length > 50) byteBuffer = [];
-            }
+                if (byteBuffer.length > 100) byteBuffer = [];
 
-        } catch (error) {
-            console.error("Error reading from scale:", error);
-        } finally {
-            if (reader) {
-                try {
-                    await reader.cancel();
-                } catch (e) {}
+            } catch (error) {
+                console.error("Error reading from scale:", error);
+                break;
             }
         }
     }
 
-    // Trigger reading on qty click
+    // Trigger reading per click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
-            connectAndReadScale(cdt, cdn);
+            active_cdt = cdt;
+            active_cdn = cdn;
+            hasSetValue = false;
+            connectScale();
         }
     });
 
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
+            isReading = false;
+            if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
     });
