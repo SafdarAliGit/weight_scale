@@ -137,7 +137,6 @@
 // });
 
 
-
 $(document).ready(function () {
 
     if (!('serial' in navigator)) {
@@ -146,13 +145,16 @@ $(document).ready(function () {
     }
 
     let port = null;
+    let reader = null;
     let isReading = false;
-    let lastUpdate = 0;
-    const throttleDelay = 3000;
 
     let active_cdt = null;
     let active_cdn = null;
     let byteBuffer = [];
+    let hasSetValue = false;
+
+    let lastUpdate = 0;
+    const throttleDelay = 3000;
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -171,84 +173,67 @@ $(document).ready(function () {
             if (!port) {
                 const ports = await navigator.serial.getPorts();
                 port = ports.length ? ports[0] : await navigator.serial.requestPort();
-                await port.open({
-                    baudRate: 9600,
-                    dataBits: 8,
-                    stopBits: 1,
-                    parity: "none"
-                });
+                await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: "none" });
                 console.log("Scale connected successfully!");
             }
 
-            // Each click gets a fresh reader
-            await readScaleData();
+            // Start reading once, if not already reading
+            if (!isReading) {
+                isReading = true;
+                reader = port.readable.getReader();
+                readScaleStream(); // fire and forget
+            }
 
         } catch (error) {
             console.error("Error connecting to weight scale:", error);
         }
     }
 
-    async function readScaleData() {
-        if (!port || !port.readable) return;
-
-        let reader = port.readable.getReader();
-        byteBuffer = [];
-        let hasSetValue = false;
-
+    async function readScaleStream() {
         try {
-            while (true) {
+            while (isReading) {
                 const { value, done } = await reader.read();
                 if (done) break;
 
                 const bytes = Array.from(value);
-
-                // Ignore control bytes (<32)
                 if (bytes.every(b => b < 32)) continue;
 
                 byteBuffer.push(...bytes);
-
                 const weight = parseWeightFromBytes(byteBuffer);
 
-                if (weight !== null && !hasSetValue) {
+                if (weight !== null && active_cdt && active_cdn && !hasSetValue) {
                     const now = Date.now();
                     if (now - lastUpdate < throttleDelay) continue;
                     lastUpdate = now;
 
-                    console.log("Weight from scale:", weight);
-
-                    if (active_cdt && active_cdn) {
-                        frappe.model.set_value(
-                            active_cdt,
-                            active_cdn,
-                            "qty",
-                            flt(weight, 2)
-                        );
-                    }
-
+                    // Set qty in clicked row
+                    frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
                     hasSetValue = true;
                     byteBuffer = [];
 
-                    // Stop reading after first valid weight
-                    break;
+                    // ✅ Reset active row after 1 read
+                    active_cdt = null;
+                    active_cdn = null;
                 }
 
-                if (byteBuffer.length > 50) byteBuffer = [];
+                if (byteBuffer.length > 100) byteBuffer = [];
             }
         } catch (error) {
             console.error("Error reading from scale:", error);
         } finally {
-            // Release reader so next click works
-            try {
-                await reader.cancel();
-            } catch (e) {}
+            if (reader) {
+                try { await reader.cancel(); } catch (e) {}
+                isReading = false;
+            }
         }
     }
 
-    // Trigger reading per child row qty click
+    // Trigger reading per child row click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
+            hasSetValue = false; // allow new read
             connectScale();
         }
     });
@@ -256,6 +241,8 @@ $(document).ready(function () {
     // Cleanup
     window.addEventListener("beforeunload", async () => {
         try {
+            isReading = false;
+            if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
     });
