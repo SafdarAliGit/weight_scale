@@ -138,6 +138,7 @@
 
 
 $(document).ready(function () {
+
     if (!('serial' in navigator)) {
         console.error('Web Serial API not supported in this browser.');
         return;
@@ -153,7 +154,6 @@ $(document).ready(function () {
     let hasSetValue = false;
 
     let lastConsoleUpdate = 0; // timestamp for slowing console/log
-    let weightUpdateTimeout = null; // Added for 3-second delay
 
     function parseWeightFromBytes(bytes) {
         try {
@@ -202,20 +202,12 @@ $(document).ready(function () {
                 const weight = parseWeightFromBytes(byteBuffer);
 
                 if (weight !== null) {
-                    // ✅ Add 3-second delay before setting value
+
+                    // ✅ Only set qty once per click
                     if (active_cdt && active_cdn && !hasSetValue) {
-                        // Clear any existing timeout
-                        if (weightUpdateTimeout) {
-                            clearTimeout(weightUpdateTimeout);
-                        }
-                        
-                        // Set new timeout for 3 seconds
-                        weightUpdateTimeout = setTimeout(() => {
-                            frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
-                            hasSetValue = true;
-                            byteBuffer = [];
-                            console.log("Set qty after 3-second delay:", weight);
-                        }, 3000); // 3 seconds delay
+                        frappe.model.set_value(active_cdt, active_cdn, "qty", flt(weight, 2));
+                        hasSetValue = true;
+                        byteBuffer = [];
                     }
 
                     // ✅ Slow down stream in console/log every 3 seconds
@@ -239,12 +231,6 @@ $(document).ready(function () {
     // Trigger reading per click on qty
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
-            // Clear any pending timeout when clicking new field
-            if (weightUpdateTimeout) {
-                clearTimeout(weightUpdateTimeout);
-                weightUpdateTimeout = null;
-            }
-            
             active_cdt = cdt;
             active_cdn = cdn;
             hasSetValue = false;
@@ -258,7 +244,6 @@ $(document).ready(function () {
     window.addEventListener("beforeunload", async () => {
         try {
             isReading = false;
-            if (weightUpdateTimeout) clearTimeout(weightUpdateTimeout); // Added
             if (reader) await reader.cancel();
             if (port) await port.close();
         } catch (e) {}
