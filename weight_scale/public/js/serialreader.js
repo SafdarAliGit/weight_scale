@@ -8,24 +8,20 @@ $(document).ready(function () {
     let port = null;
     let reader = null;
     let isReading = false;
-
     let lastUpdate = 0;
     const throttleDelay = 3000;
 
     let active_cdt = null;
     let active_cdn = null;
 
-    // Array to accumulate bytes from scale
     let byteBuffer = [];
+    let hasSetValue = false;
 
+    // Use your working function to parse bytes from scale
     function parseWeightFromBytes(bytes) {
-        // Convert byte array to string safely
         try {
             const str = String.fromCharCode(...bytes);
-            // Keep only numbers and dot
             const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
-            console.log("Cleaned string:", cleaned);
-            
             if (!cleaned) return null;
             return parseFloat(cleaned);
         } catch (e) {
@@ -48,7 +44,7 @@ $(document).ready(function () {
             port = ports.length ? ports[0] : await navigator.serial.requestPort();
 
             await port.open({
-                baudRate: 9600,   // adjust according to your scale
+                baudRate: 9600,
                 dataBits: 8,
                 stopBits: 1,
                 parity: "none"
@@ -70,21 +66,22 @@ $(document).ready(function () {
                 const { value, done } = await reader.read();
                 if (done) break;
 
-                // Convert Uint8Array to array of numbers
                 const bytes = Array.from(value);
+
+                // Ignore control bytes (<32)
+                if (bytes.every(b => b < 32)) continue;
+
                 byteBuffer.push(...bytes);
 
-                // Try to parse weight from accumulated bytes
                 const weight = parseWeightFromBytes(byteBuffer);
-                if (weight !== null) {
 
+                if (weight !== null && !hasSetValue) {
                     const now = Date.now();
                     if (now - lastUpdate < throttleDelay) continue;
                     lastUpdate = now;
 
                     console.log("Weight from scale:", weight);
 
-                    // Set value into clicked child row
                     if (active_cdt && active_cdn) {
                         frappe.model.set_value(
                             active_cdt,
@@ -94,22 +91,37 @@ $(document).ready(function () {
                         );
                     }
 
-                    // Clear buffer after successful parse
-                    byteBuffer = [];
+                    hasSetValue = true; // ✅ Prevent further updates
+                    byteBuffer = []; // clear buffer
+
+                    // Stop reading until next click
+                    break;
                 }
+
+                // Prevent buffer from growing indefinitely
+                if (byteBuffer.length > 50) byteBuffer = [];
 
             } catch (error) {
                 console.error("Error reading from scale:", error);
                 break;
             }
         }
+
+        // Release reader after first valid value
+        if (hasSetValue && reader) {
+            try {
+                await reader.cancel();
+            } catch (e) {}
+            isReading = false;
+        }
     }
 
-    // Trigger scale reading when qty field is clicked in child table
+    // Trigger reading on child table qty click
     frappe.ui.form.on("Delivery Note Item", {
         qty: function(frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
+            hasSetValue = false; // reset flag for new click
             connectScale();
         }
     });
