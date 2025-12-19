@@ -10,7 +10,7 @@ $(document).ready(function () {
     let isReading = false;
 
     let lastUpdate = 0;
-    const throttleDelay = 3000;
+    const throttleDelay = 10000;
 
     let active_cdt = null;
     let active_cdn = null;
