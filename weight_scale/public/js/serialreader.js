@@ -148,17 +148,26 @@ if ('serial' in navigator) {
         let active_cdt = null;
         let active_cdn = null;
 
-        function parseWeightFromBytes(bytes) {
+      function parseWeightFromBytes(bytes) {
         try {
+            // Convert bytes to string
             const str = String.fromCharCode(...bytes);
-            const cleaned = str.replace(/[^\d.]/g, '').replace(/^0+(?=\d)/, '');
-            if (!cleaned) return null;
-            return parseFloat(cleaned);
+
+            // Take only the first line (before newline or carriage return)
+            const firstLine = str.split(/\r?\n/)[0];
+
+            // Extract number (supports + / - and leading zeros)
+            const match = firstLine.match(/[+-]?\d+(\.\d+)?/);
+
+            if (!match) return null;
+
+            return parseFloat(match[0]);
         } catch (e) {
             console.warn("Cannot parse bytes:", bytes);
             return null;
         }
-    }
+        }
+
 
         // Function to connect to the serial port
         async function connectSerial() {
@@ -187,11 +196,11 @@ if ('serial' in navigator) {
                         reader.releaseLock();
                         break;
                     }
-                    console.log("Weight from scale:", value);
+                    
                     // Process the received data
                     let floatValue = parseWeightFromBytes(value);
                     // let floatValue = parseInt(reversedValue);
-                        
+                    console.log("Weight from scale:", floatValue);
                     // Check if floatValue is a valid number
                     if (!isNaN(floatValue)) {
                         const currentTime = Date.now();
