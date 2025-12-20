@@ -190,7 +190,7 @@ if ('serial' in navigator) {
                     // Process the received data
                     let floatValue = parseWeightFromBytes(value);
                     // let floatValue = parseInt(reversedValue);
-
+                        console.log("Weight from scale:", floatValue);
                     // Check if floatValue is a valid number
                     if (!isNaN(floatValue)) {
                         const currentTime = Date.now();
