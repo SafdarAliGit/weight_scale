@@ -182,12 +182,12 @@ if ('serial' in navigator) {
             while (true) {
                 try {
                     const {value, done} = await reader.read();
-                    console.log("Weight from scale:", value);
+                    
                     if (done) {
                         reader.releaseLock();
                         break;
                     }
-
+                    console.log("Weight from scale:", value);
                     // Process the received data
                     let floatValue = parseWeightFromBytes(value);
                     // let floatValue = parseInt(reversedValue);
