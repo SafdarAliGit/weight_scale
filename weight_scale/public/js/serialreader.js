@@ -148,25 +148,23 @@ if ('serial' in navigator) {
         let active_cdt = null;
         let active_cdn = null;
 
-      function parseWeightFromBytes(bytes) {
-        try {
-            // Convert bytes to string
-            const str = String.fromCharCode(...bytes);
+        function parseWeightFromString(data) {
+            if (!data || typeof data !== "string") return null;
 
-            // Take only the first line (before newline or carriage return)
-            const firstLine = str.split(/\r?\n/)[0];
+            // Split into lines
+            const lines = data.split(/\r?\n/);
 
-            // Extract number (supports + / - and leading zeros)
-            const match = firstLine.match(/[+-]?\d+(\.\d+)?/);
+            // Take first line only → "+000070"
+            const firstLine = lines[0];
 
-            if (!match) return null;
+            // Remove non-numeric characters except + - .
+            const numeric = firstLine.replace(/[^0-9.+-]/g, '');
 
-            return parseFloat(match[0]);
-        } catch (e) {
-            console.warn("Cannot parse bytes:", bytes);
-            return null;
+            if (!numeric) return null;
+
+            return parseFloat(numeric);
         }
-        }
+
 
 
         // Function to connect to the serial port
@@ -198,7 +196,7 @@ if ('serial' in navigator) {
                     }
                     
                     // Process the received data
-                    let floatValue = parseWeightFromBytes(value);
+                    let floatValue = parseWeightFromString(value);
                     // let floatValue = parseInt(reversedValue);
                     console.log("Weight from scale:", floatValue);
                     // Check if floatValue is a valid number
