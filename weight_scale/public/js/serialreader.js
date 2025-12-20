@@ -137,100 +137,206 @@
 // });
 
 
+// $(document).ready(function () {
+
+// if ('serial' in navigator) {
+//         let port;
+//         let reader;
+//         let textDecoder;
+//         let lastUpdate = 0; // Timestamp of the last update
+//         const throttleDelay = 3000; // Throttle delay in milliseconds
+//         let active_cdt = null;
+//         let active_cdn = null;
+
+//         function parseWeightFromString(data) {
+//             if (typeof data !== "string") return null;
+
+//             // Find +number pattern anywhere in the string
+//             const match = data.match(/\+(\d+(\.\d+)?)/);
+
+//             if (!match) return null;
+
+//             return parseFloat(match[1]);
+//         }
+
+
+
+
+//         // Function to connect to the serial port
+//         async function connectSerial() {
+//             try {
+//                 port = await navigator.serial.requestPort();
+//                 await port.open({baudRate: 9600});
+//                 // Initialize text decoder
+//                 textDecoder = new TextDecoderStream();
+//                 const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+//                 reader = textDecoder.readable.getReader();
+
+//                 // Start reading data
+//                 readSerialData();
+//             } catch (error) {
+//                 console.error('Error connecting to serial port:', error);
+//             }
+//         }
+
+//         // Function to read data from the serial port with throttling
+//         async function readSerialData() {
+//             while (true) {
+//                 try {
+//                     const {value, done} = await reader.read();
+                    
+//                     if (done) {
+//                         reader.releaseLock();
+//                         break;
+//                     }
+                    
+//                     // Process the received data
+//                     let floatValue = parseWeightFromString(value);
+//                     // let floatValue = parseInt(reversedValue);
+//                     console.log("Weight from scale:", floatValue);
+//                     // Check if floatValue is a valid number
+//                     if (!isNaN(floatValue)) {
+//                         const currentTime = Date.now();
+
+//                         // Throttle the updates
+//                         if (currentTime - lastUpdate >= throttleDelay) {
+//                             lastUpdate = currentTime;
+
+//                                 if (active_cdt && active_cdn) {
+//                                 frappe.model.set_value(
+//                                     active_cdt,
+//                                     active_cdn,
+//                                     "qty",
+//                                     flt(floatValue, 2)
+//                                 );
+                            
+//                             } 
+//                         }
+//                     } else {
+//                         console.error('Received data is not a valid number:', floatValue);
+//                     }
+//                 } catch (error) {
+//                     console.error('Error reading serial data:', error);
+//                     break;
+//                 }
+//             }
+//         }
+
+//         frappe.ui.form.on("Delivery Note Item", {
+//             custom_get_weight: function(frm, cdt, cdn) {
+//             active_cdt = cdt;
+//             active_cdn = cdn;
+//             connectSerial();
+//         }
+//     });
+
+//     } else {
+//         console.error('Web Serial API is not supported in this browser.');
+//     }
+// });
+
+
 $(document).ready(function () {
 
-if ('serial' in navigator) {
-        let port;
-        let reader;
-        let textDecoder;
-        let lastUpdate = 0; // Timestamp of the last update
-        const throttleDelay = 3000; // Throttle delay in milliseconds
-        let active_cdt = null;
-        let active_cdn = null;
+    if (!('serial' in navigator)) {
+        console.error('Web Serial API is not supported in this browser.');
+        return;
+    }
 
-        function parseWeightFromString(data) {
-            if (typeof data !== "string") return null;
+    let port = null;
+    let reader = null;
+    let textDecoder = null;
 
-            // Find +number pattern anywhere in the string
-            const match = data.match(/\+(\d+(\.\d+)?)/);
+    let active_cdt = null;
+    let active_cdn = null;
 
-            if (!match) return null;
+    let lastUpdate = 0;
+    const throttleDelay = 3000;
 
-            return parseFloat(match[1]);
-        }
+    let weightLocked = true; // 🔒 locked by default
 
+    // ✅ STRICT parser: accepts ONLY + values
+    function parseWeightFromString(data) {
+        if (typeof data !== "string") return null;
 
+        const match = data.match(/\+(\d+(\.\d+)?)/);
+        if (!match) return null;
 
+        return parseFloat(match[1]);
+    }
 
-        // Function to connect to the serial port
-        async function connectSerial() {
-            try {
+    // 🔌 Connect to serial port
+    async function connectSerial() {
+        try {
+            if (!port) {
                 port = await navigator.serial.requestPort();
-                await port.open({baudRate: 9600});
-                // Initialize text decoder
+                await port.open({ baudRate: 9600 });
+
                 textDecoder = new TextDecoderStream();
-                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+                port.readable.pipeTo(textDecoder.writable);
                 reader = textDecoder.readable.getReader();
 
-                // Start reading data
-                readSerialData();
-            } catch (error) {
-                console.error('Error connecting to serial port:', error);
+                readSerialData(); // start loop once
             }
+        } catch (error) {
+            console.error('Error connecting to serial port:', error);
         }
+    }
 
-        // Function to read data from the serial port with throttling
-        async function readSerialData() {
-            while (true) {
-                try {
-                    const {value, done} = await reader.read();
-                    
-                    if (done) {
-                        reader.releaseLock();
-                        break;
-                    }
-                    
-                    // Process the received data
-                    let floatValue = parseWeightFromString(value);
-                    // let floatValue = parseInt(reversedValue);
-                    console.log("Weight from scale:", floatValue);
-                    // Check if floatValue is a valid number
-                    if (!isNaN(floatValue)) {
-                        const currentTime = Date.now();
+    // 📡 Read data continuously
+    async function readSerialData() {
+        while (true) {
+            try {
+                const { value, done } = await reader.read();
 
-                        // Throttle the updates
-                        if (currentTime - lastUpdate >= throttleDelay) {
-                            lastUpdate = currentTime;
-
-                                if (active_cdt && active_cdn) {
-                                frappe.model.set_value(
-                                    active_cdt,
-                                    active_cdn,
-                                    "qty",
-                                    flt(floatValue, 2)
-                                );
-                            
-                            } 
-                        }
-                    } else {
-                        console.error('Received data is not a valid number:', floatValue);
-                    }
-                } catch (error) {
-                    console.error('Error reading serial data:', error);
+                if (done) {
+                    reader.releaseLock();
                     break;
                 }
+
+                // 🚫 Do nothing if already locked
+                if (weightLocked) continue;
+
+                const floatValue = parseWeightFromString(value);
+                console.log("Weight from scale:", floatValue);
+
+                if (!isNaN(floatValue) && floatValue > 0) {
+                    const now = Date.now();
+
+                    if (now - lastUpdate >= throttleDelay) {
+                        lastUpdate = now;
+
+                        if (active_cdt && active_cdn) {
+                            frappe.model.set_value(
+                                active_cdt,
+                                active_cdn,
+                                "qty",
+                                flt(floatValue, 2)
+                            );
+
+                            weightLocked = true; // 🔒 LOCK after first set
+                            console.log("Weight locked:", floatValue);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error reading serial data:', error);
+                break;
             }
         }
+    }
 
-        frappe.ui.form.on("Delivery Note Item", {
-            custom_get_weight: function(frm, cdt, cdn) {
+    // 🖱️ Button click — unlock & capture once
+    frappe.ui.form.on("Delivery Note Item", {
+        custom_get_weight: function (frm, cdt, cdn) {
             active_cdt = cdt;
             active_cdn = cdn;
+
+            lastUpdate = 0;
+            weightLocked = false; // 🔓 unlock capture
+
             connectSerial();
         }
     });
 
-    } else {
-        console.error('Web Serial API is not supported in this browser.');
-    }
 });
