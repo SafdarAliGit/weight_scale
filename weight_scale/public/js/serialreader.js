@@ -145,6 +145,8 @@ if ('serial' in navigator) {
         let textDecoder;
         let lastUpdate = 0; // Timestamp of the last update
         const throttleDelay = 3000; // Throttle delay in milliseconds
+        let active_cdt = null;
+        let active_cdn = null;
 
         function parseWeightFromBytes(bytes) {
         try {
