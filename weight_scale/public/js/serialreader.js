@@ -149,21 +149,16 @@ if ('serial' in navigator) {
         let active_cdn = null;
 
         function parseWeightFromString(data) {
-            if (!data || typeof data !== "string") return null;
+            if (typeof data !== "string") return null;
 
-            // Split into lines
-            const lines = data.split(/\r?\n/);
+            // Find +number pattern anywhere in the string
+            const match = data.match(/\+(\d+(\.\d+)?)/);
 
-            // Take first line only → "+000070"
-            const firstLine = lines[0];
+            if (!match) return null;
 
-            // Remove non-numeric characters except + - .
-            const numeric = firstLine.replace(/[^0-9.+-]/g, '');
-
-            if (!numeric) return null;
-
-            return parseFloat(numeric);
+            return parseFloat(match[1]);
         }
+
 
 
 
