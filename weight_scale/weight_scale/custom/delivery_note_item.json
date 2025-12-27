@@ -17,7 +17,7 @@
       "fetch_if_empty": 0,
       "fieldname": "custom_get_weight",
       "fieldtype": "Button",
-      "hidden": 0,  // Visible custom field
+      "hidden": 0,
       "hide_border": 0,
       "hide_days": 0,
       "hide_seconds": 0,
